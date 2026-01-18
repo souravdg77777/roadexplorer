@@ -360,6 +360,10 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        .leaflet-overlay-pane canvas {
+            opacity: 1 !important;
+        }
     </style>
 </head>
 <body>
@@ -399,6 +403,10 @@
     <div class="legend">
         <div class="legend-title">Legend</div>
         <div class="legend-item">
+            <div class="legend-color" style="background: rgba(200, 200, 200, 0.6);"></div>
+            <span>Unexplored</span>
+        </div>
+        <div class="legend-item">
             <div class="legend-color" style="background: rgba(135, 206, 250, 0.7);"></div>
             <span>Explored (1-2x)</span>
         </div>
@@ -432,8 +440,8 @@
             </div>
         </div>
         <div class="action-buttons">
-            <button class="btn btn-primary" onclick="navigateToUnexplored()">
-                🧭 Navigate
+            <button class="btn btn-primary" onclick="feelingLucky()">
+                🎲 I'm Feeling Lucky
             </button>
             <button class="btn btn-secondary" onclick="clearData()">
                 🗑️ Clear Data
@@ -445,6 +453,7 @@
     <script>
         let map;
         let userMarker;
+        let luckyMarker;
         let watchId;
         let currentPath = [];
         let allPaths = [];
@@ -452,6 +461,8 @@
         let startTime = Date.now();
         let totalDistance = 0;
         let userPosition = null;
+        let fogCanvas;
+        let fogContext;
         
         function loadData() {
             const saved = localStorage.getItem('explorationData');
@@ -510,6 +521,77 @@
             document.getElementById('roads').textContent = allPaths.length;
         }
         
+        function initFogCanvas() {
+            const FogLayer = L.Layer.extend({
+                onAdd: function(map) {
+                    const size = map.getSize();
+                    const canvas = L.DomUtil.create('canvas');
+                    canvas.width = size.x;
+                    canvas.height = size.y;
+                    canvas.style.position = 'absolute';
+                    canvas.style.top = '0';
+                    canvas.style.left = '0';
+                    canvas.style.pointerEvents = 'none';
+                    
+                    fogCanvas = canvas;
+                    fogContext = canvas.getContext('2d');
+                    
+                    // Fill with grey fog initially
+                    fogContext.fillStyle = 'rgba(150, 150, 150, 0.6)';
+                    fogContext.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    map.getPanes().overlayPane.appendChild(canvas);
+                    
+                    map.on('move zoom viewreset', () => this.reset());
+                    this.reset();
+                },
+                
+                reset: function() {
+                    const size = map.getSize();
+                    const topLeft = map.containerPointToLayerPoint([0, 0]);
+                    L.DomUtil.setPosition(fogCanvas, topLeft);
+                    
+                    if (fogCanvas.width !== size.x || fogCanvas.height !== size.y) {
+                        fogCanvas.width = size.x;
+                        fogCanvas.height = size.y;
+                        this.redraw();
+                    }
+                },
+                
+                redraw: function() {
+                    // Redraw fog
+                    fogContext.fillStyle = 'rgba(150, 150, 150, 0.6)';
+                    fogContext.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
+                    
+                    // Clear explored areas
+                    fogContext.globalCompositeOperation = 'destination-out';
+                    fogContext.strokeStyle = 'rgba(255, 255, 255, 1)';
+                    fogContext.lineWidth = 40; // Width of cleared area
+                    fogContext.lineCap = 'round';
+                    fogContext.lineJoin = 'round';
+                    
+                    allPaths.forEach(path => {
+                        if (path.length < 2) return;
+                        
+                        fogContext.beginPath();
+                        path.forEach((point, i) => {
+                            const p = map.latLngToContainerPoint(point);
+                            if (i === 0) {
+                                fogContext.moveTo(p.x, p.y);
+                            } else {
+                                fogContext.lineTo(p.x, p.y);
+                            }
+                        });
+                        fogContext.stroke();
+                    });
+                    
+                    fogContext.globalCompositeOperation = 'source-over';
+                }
+            });
+            
+            return new FogLayer();
+        }
+        
         function drawPaths() {
             pathPolylines.forEach(line => map.removeLayer(line));
             pathPolylines = [];
@@ -535,6 +617,14 @@
                 
                 pathPolylines.push(polyline);
             });
+            
+            // Update fog
+            if (fogCanvas && fogContext) {
+                const fogLayer = map._layers[Object.keys(map._layers).find(key => 
+                    map._layers[key].redraw
+                )];
+                if (fogLayer) fogLayer.redraw();
+            }
         }
         
         function updateStatus(text, active = true) {
@@ -603,13 +693,45 @@
             }
         }
         
-        function navigateToUnexplored() {
-            if (userPosition) {
-                const url = `https://www.google.com/maps/dir/?api=1&origin=${userPosition[0]},${userPosition[1]}&travelmode=driving`;
-                window.open(url, '_blank');
-            } else {
+        function feelingLucky() {
+            if (!userPosition) {
                 alert('Please wait for your location to be detected');
+                return;
             }
+            
+            // Remove previous lucky marker if exists
+            if (luckyMarker) {
+                map.removeLayer(luckyMarker);
+            }
+            
+            // Generate random point 500m-1km away in random direction
+            const distance = 0.5 + Math.random() * 0.5; // 0.5-1km
+            const angle = Math.random() * 2 * Math.PI;
+            
+            // Convert to lat/lng offset (rough approximation)
+            const latOffset = (distance / 111) * Math.cos(angle);
+            const lngOffset = (distance / (111 * Math.cos(userPosition[0] * Math.PI / 180))) * Math.sin(angle);
+            
+            const luckyPoint = [
+                userPosition[0] + latOffset,
+                userPosition[1] + lngOffset
+            ];
+            
+            // Add marker
+            luckyMarker = L.marker(luckyPoint, {
+                icon: L.divIcon({
+                    className: 'lucky-marker',
+                    html: '🎯',
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
+                })
+            }).addTo(map);
+            
+            luckyMarker.bindPopup('Explore here! 🎲').openPopup();
+            
+            // Pan to show both user and lucky point
+            const bounds = L.latLngBounds([userPosition, luckyPoint]);
+            map.fitBounds(bounds, { padding: [50, 50] });
         }
         
         function clearData() {
@@ -622,6 +744,14 @@
                 pathPolylines = [];
                 localStorage.removeItem('explorationData');
                 updateStats();
+                
+                // Reset fog
+                if (fogCanvas && fogContext) {
+                    const fogLayer = map._layers[Object.keys(map._layers).find(key => 
+                        map._layers[key].redraw
+                    )];
+                    if (fogLayer) fogLayer.redraw();
+                }
             }
         }
 
@@ -675,6 +805,10 @@
                 attribution: '© OpenStreetMap contributors',
                 maxZoom: 19
             }).addTo(map);
+            
+            // Add fog layer
+            const fogLayer = initFogCanvas();
+            fogLayer.addTo(map);
             
             drawPaths();
             updateStats();
