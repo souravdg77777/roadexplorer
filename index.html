@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Road Explorer - Track Your Journey</title>
+    <meta name="description" content="Track and visualize all the roads you've explored">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            overflow: hidden;
+            background: #f8f9fa;
+        }
+
+        #map {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.inactive {
+            background: #ff9800;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .stats-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 1000;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #4188ff;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #4188ff;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2d6fd9;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .legend {
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            font-size: 12px;
+        }
+
+        .legend-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 6px 0;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 4px;
+            border-radius: 2px;
+        }
+
+        .center-btn {
+            position: absolute;
+            bottom: 200px;
+            right: 20px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: white;
+            border: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            cursor: pointer;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.3s;
+        }
+
+        .center-btn:hover {
+            background: #f0f0f0;
+            transform: scale(1.05);
+        }
+
+        .user-marker {
+            width: 20px;
+            height: 20px;
+            background: #4188ff;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        @media (max-width: 600px) {
+            .stats-grid {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 12px;
+            }
+
+            .stat-value {
+                font-size: 20px;
+            }
+
+            .stat-label {
+                font-size: 10px;
+            }
+
+            .legend {
+                font-size: 11px;
+                padding: 12px;
+            }
+        }
+
+        .permission-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 3000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .permission-content {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .permission-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        .permission-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 12px;
+        }
+
+        .permission-text {
+            font-size: 15px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+
+        .permission-button {
+            width: 100%;
+            padding: 16px;
+            background: #4188ff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(65, 136, 255, 0.3);
+        }
+
+        .permission-button:hover {
+            background: #2d6fd9;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(65, 136, 255, 0.4);
+        }
+
+        .permission-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .permission-note {
+            font-size: 13px;
+            color: #999;
+            margin-top: 16px;
+            line-height: 1.4;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 2000;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f0f0f0;
+            border-top: 4px solid #4188ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="permissionModal" class="permission-modal hidden">
+        <div class="permission-content">
+            <div class="permission-icon">📍</div>
+            <div class="permission-title">Location Access Required</div>
+            <div class="permission-text">
+                Road Explorer needs access to your location to track your exploration journey and show visited roads on the map.
+            </div>
+            <button class="permission-button" id="allowButton">
+                Enable Location Access
+            </button>
+            <div class="permission-note">
+                Your location data is stored only on your device and never shared.
+            </div>
+        </div>
+    </div>
+
+    <div id="loading" class="loading hidden">
+        <div class="loading-spinner"></div>
+        <div style="color: #666;">Getting your location...</div>
+    </div>
+
+    <div class="header">
+        <div class="logo">
+            🗺️ Road Explorer
+        </div>
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Starting...</span>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="legend">
+        <div class="legend-title">Legend</div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(135, 206, 250, 0.7);"></div>
+            <span>Explored (1-2x)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(65, 136, 255, 0.85);"></div>
+            <span>Frequent (3-4x)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(0, 60, 179, 0.9);"></div>
+            <span>Very Frequent (5+)</span>
+        </div>
+    </div>
+
+    <button class="center-btn" onclick="centerOnUser()" title="Center on my location">
+        📍
+    </button>
+
+    <div class="stats-panel">
+        <div class="stats-grid">
+            <div class="stat-item">
+                <span class="stat-value" id="distance">0</span>
+                <span class="stat-label">km explored</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="time">0</span>
+                <span class="stat-label">minutes</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="roads">0</span>
+                <span class="stat-label">paths</span>
+            </div>
+        </div>
+        <div class="action-buttons">
+            <button class="btn btn-primary" onclick="navigateToUnexplored()">
+                🧭 Navigate
+            </button>
+            <button class="btn btn-secondary" onclick="clearData()">
+                🗑️ Clear Data
+            </button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script>
+        let map;
+        let userMarker;
+        let watchId;
+        let currentPath = [];
+        let allPaths = [];
+        let pathPolylines = [];
+        let startTime = Date.now();
+        let totalDistance = 0;
+        let userPosition = null;
+        
+        function loadData() {
+            const saved = localStorage.getItem('explorationData');
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    allPaths = data.paths || [];
+                    totalDistance = data.distance || 0;
+                    startTime = data.startTime || Date.now();
+                } catch (e) {
+                    console.error('Error loading data:', e);
+                }
+            }
+        }
+        
+        function saveData() {
+            try {
+                const data = {
+                    paths: allPaths,
+                    distance: totalDistance,
+                    startTime: startTime
+                };
+                localStorage.setItem('explorationData', JSON.stringify(data));
+            } catch (e) {
+                console.error('Error saving data:', e);
+            }
+        }
+        
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+        
+        function getPathColor(frequency) {
+            if (frequency >= 5) return '#003CB3';
+            if (frequency >= 3) return '#4188FF';
+            return '#87CEFA';
+        }
+        
+        function getPathOpacity(frequency) {
+            if (frequency >= 5) return 0.9;
+            if (frequency >= 3) return 0.85;
+            return 0.7;
+        }
+        
+        function updateStats() {
+            document.getElementById('distance').textContent = totalDistance.toFixed(2);
+            const minutes = Math.floor((Date.now() - startTime) / 60000);
+            document.getElementById('time').textContent = minutes;
+            document.getElementById('roads').textContent = allPaths.length;
+        }
+        
+        function drawPaths() {
+            pathPolylines.forEach(line => map.removeLayer(line));
+            pathPolylines = [];
+            
+            const pathFrequency = {};
+            allPaths.forEach(path => {
+                const key = path.map(p => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join('|');
+                pathFrequency[key] = (pathFrequency[key] || 0) + 1;
+            });
+            
+            allPaths.forEach(path => {
+                if (path.length < 2) return;
+                
+                const key = path.map(p => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join('|');
+                const frequency = pathFrequency[key];
+                
+                const polyline = L.polyline(path, {
+                    color: getPathColor(frequency),
+                    opacity: getPathOpacity(frequency),
+                    weight: 6,
+                    smoothFactor: 1
+                }).addTo(map);
+                
+                pathPolylines.push(polyline);
+            });
+        }
+        
+        function updateStatus(text, active = true) {
+            document.getElementById('statusText').textContent = text;
+            const dot = document.getElementById('statusDot');
+            if (active) {
+                dot.classList.remove('inactive');
+            } else {
+                dot.classList.add('inactive');
+            }
+        }
+        
+        function handlePosition(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            userPosition = [lat, lng];
+            
+            document.getElementById('loading').classList.add('hidden');
+            
+            if (!userMarker) {
+                const userIcon = L.divIcon({
+                    className: 'user-marker',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+                
+                userMarker = L.marker(userPosition, { icon: userIcon }).addTo(map);
+                map.setView(userPosition, 16);
+            } else {
+                userMarker.setLatLng(userPosition);
+            }
+            
+            updateStatus('Tracking', true);
+            
+            if (currentPath.length > 0) {
+                const lastPos = currentPath[currentPath.length - 1];
+                const dist = calculateDistance(lastPos[0], lastPos[1], lat, lng);
+                
+                if (dist > 0.01) {
+                    currentPath.push([lat, lng]);
+                    totalDistance += dist;
+                    
+                    if (currentPath.length >= 5) {
+                        allPaths.push([...currentPath]);
+                        currentPath = [[lat, lng]];
+                        drawPaths();
+                        saveData();
+                    }
+                    
+                    updateStats();
+                }
+            } else {
+                currentPath.push([lat, lng]);
+            }
+        }
+        
+        function handlePositionError(error) {
+            console.error('Geolocation error:', error);
+            updateStatus('Location Error', false);
+            document.getElementById('loading').classList.add('hidden');
+        }
+        
+        function centerOnUser() {
+            if (userPosition) {
+                map.setView(userPosition, 16);
+            }
+        }
+        
+        function navigateToUnexplored() {
+            if (userPosition) {
+                const url = `https://www.google.com/maps/dir/?api=1&origin=${userPosition[0]},${userPosition[1]}&travelmode=driving`;
+                window.open(url, '_blank');
+            } else {
+                alert('Please wait for your location to be detected');
+            }
+        }
+        
+        function clearData() {
+            if (confirm('Are you sure you want to clear all exploration data?')) {
+                allPaths = [];
+                currentPath = [];
+                totalDistance = 0;
+                startTime = Date.now();
+                pathPolylines.forEach(line => map.removeLayer(line));
+                pathPolylines = [];
+                localStorage.removeItem('explorationData');
+                updateStats();
+            }
+        }
+
+        function requestLocationPermission() {
+            const button = document.getElementById('allowButton');
+            button.textContent = 'Requesting permission...';
+            button.disabled = true;
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    document.getElementById('permissionModal').classList.add('hidden');
+                    document.getElementById('loading').classList.remove('hidden');
+                    startTracking();
+                },
+                (error) => {
+                    button.disabled = false;
+                    button.textContent = 'Try Again';
+                    alert('Location permission denied. Please allow location access to use Road Explorer.');
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 30000,
+                    maximumAge: 0
+                }
+            );
+        }
+
+        function startTracking() {
+            if (navigator.geolocation) {
+                watchId = navigator.geolocation.watchPosition(
+                    handlePosition,
+                    handlePositionError,
+                    {
+                        enableHighAccuracy: true,
+                        maximumAge: 0,
+                        timeout: 30000
+                    }
+                );
+            }
+        }
+
+        function initMap() {
+            loadData();
+            
+            map = L.map('map', {
+                zoomControl: true,
+                attributionControl: true
+            }).setView([19.0760, 72.8777], 13);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+            
+            drawPaths();
+            updateStats();
+        }
+
+        async function checkPermission() {
+            if (!navigator.geolocation) {
+                alert('Geolocation is not supported by your browser');
+                return;
+            }
+
+            if (navigator.permissions) {
+                try {
+                    const result = await navigator.permissions.query({ name: 'geolocation' });
+                    
+                    if (result.state === 'granted') {
+                        document.getElementById('loading').classList.remove('hidden');
+                        startTracking();
+                    } else {
+                        document.getElementById('permissionModal').classList.remove('hidden');
+                    }
+                } catch (e) {
+                    document.getElementById('permissionModal').classList.remove('hidden');
+                }
+            } else {
+                document.getElementById('permissionModal').classList.remove('hidden');
+            }
+        }
+
+        window.addEventListener('load', () => {
+            initMap();
+            checkPermission();
+            
+            document.getElementById('allowButton').addEventListener('click', requestLocationPermission);
+        });
+        
+        window.addEventListener('beforeunload', () => {
+            if (currentPath.length > 1) {
+                allPaths.push([...currentPath]);
+                saveData();
+            }
+        });
+    </script>
+</body>
+</html>
