@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Road Explorer - Track Your Journey</title>
     <meta name="description" content="Track and visualize all the roads you've explored">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <style>
         * {
             margin: 0;
@@ -25,6 +24,12 @@
             position: absolute;
             top: 0;
             left: 0;
+            opacity: 0;
+            transition: opacity 0.8s ease-in-out;
+        }
+
+        #map.loaded {
+            opacity: 1;
         }
 
         .header {
@@ -40,6 +45,12 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            transform: translateY(-100%);
+            transition: transform 0.6s ease-out 0.3s;
+        }
+
+        .header.visible {
+            transform: translateY(0);
         }
 
         .logo {
@@ -89,6 +100,12 @@
             z-index: 1000;
             max-width: 500px;
             margin: 0 auto;
+            transform: translateY(200%);
+            transition: transform 0.6s ease-out 0.5s;
+        }
+
+        .stats-panel.visible {
+            transform: translateY(0);
         }
 
         .stats-grid {
@@ -144,6 +161,8 @@
 
         .btn-primary:hover {
             background: #2d6fd9;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(65, 136, 255, 0.3);
         }
 
         .btn-secondary {
@@ -166,6 +185,12 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             z-index: 1000;
             font-size: 12px;
+            transform: translateX(200%);
+            transition: transform 0.6s ease-out 0.4s;
+        }
+
+        .legend.visible {
+            transform: translateX(0);
         }
 
         .legend-title {
@@ -204,11 +229,17 @@
             justify-content: center;
             font-size: 20px;
             transition: all 0.3s;
+            opacity: 0;
+        }
+
+        .center-btn.visible {
+            opacity: 1;
+            transition: opacity 0.6s ease-out 0.6s, transform 0.3s;
         }
 
         .center-btn:hover {
             background: #f0f0f0;
-            transform: scale(1.05);
+            transform: scale(1.1);
         }
 
         .user-marker {
@@ -334,26 +365,56 @@
         }
 
         .loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            z-index: 2000;
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: 4000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.8s ease-out, visibility 0.8s ease-out;
+        }
+
+        .loading.fade-out {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .loading-icon {
+            font-size: 80px;
+            margin-bottom: 24px;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .loading-text {
+            color: white;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .loading-subtext {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 16px;
         }
 
         .loading-spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid #f0f0f0;
-            border-top: 4px solid #4188ff;
+            margin-top: 32px;
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin: 0 auto 16px;
         }
 
         @keyframes spin {
@@ -361,8 +422,12 @@
             100% { transform: rotate(360deg); }
         }
 
-        .leaflet-overlay-pane canvas {
-            opacity: 1 !important;
+        #fogCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 100;
         }
     </style>
 </head>
@@ -383,9 +448,11 @@
         </div>
     </div>
 
-    <div id="loading" class="loading hidden">
+    <div id="loading" class="loading">
+        <div class="loading-icon">🗺️</div>
+        <div class="loading-text">Road Explorer</div>
+        <div class="loading-subtext">Preparing your journey...</div>
         <div class="loading-spinner"></div>
-        <div style="color: #666;">Getting your location...</div>
     </div>
 
     <div class="header">
@@ -399,6 +466,7 @@
     </div>
 
     <div id="map"></div>
+    <canvas id="fogCanvas"></canvas>
 
     <div class="legend">
         <div class="legend-title">Legend</div>
@@ -407,16 +475,8 @@
             <span>Unexplored</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: rgba(135, 206, 250, 0.7);"></div>
-            <span>Explored (1-2x)</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: rgba(65, 136, 255, 0.85);"></div>
-            <span>Frequent (3-4x)</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: rgba(0, 60, 179, 0.9);"></div>
-            <span>Very Frequent (5+)</span>
+            <div class="legend-color" style="background: rgba(65, 136, 255, 0.8);"></div>
+            <span>Your Path</span>
         </div>
     </div>
 
@@ -449,8 +509,13 @@
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <script>
+        // ============================================
+        // 🔑 PUT YOUR GOOGLE MAPS API KEY HERE
+        // ============================================
+        const GOOGLE_MAPS_API_KEY = 'AIzaSyDMe6Gtz19tyYDmhlhA3gg50rKPjq1vfE8';
+        // ============================================
+
         let map;
         let userMarker;
         let luckyMarker;
@@ -502,129 +567,108 @@
             return R * c;
         }
         
-        function getPathColor(frequency) {
-            if (frequency >= 5) return '#003CB3';
-            if (frequency >= 3) return '#4188FF';
-            return '#87CEFA';
-        }
-        
-        function getPathOpacity(frequency) {
-            if (frequency >= 5) return 0.9;
-            if (frequency >= 3) return 0.85;
-            return 0.7;
-        }
-        
         function updateStats() {
             document.getElementById('distance').textContent = totalDistance.toFixed(2);
             const minutes = Math.floor((Date.now() - startTime) / 60000);
             document.getElementById('time').textContent = minutes;
             document.getElementById('roads').textContent = allPaths.length;
         }
-        
+
         function initFogCanvas() {
-            const FogLayer = L.Layer.extend({
-                onAdd: function(map) {
-                    const size = map.getSize();
-                    const canvas = L.DomUtil.create('canvas');
-                    canvas.width = size.x;
-                    canvas.height = size.y;
-                    canvas.style.position = 'absolute';
-                    canvas.style.top = '0';
-                    canvas.style.left = '0';
-                    canvas.style.pointerEvents = 'none';
-                    
-                    fogCanvas = canvas;
-                    fogContext = canvas.getContext('2d');
-                    
-                    // Fill with grey fog initially
-                    fogContext.fillStyle = 'rgba(150, 150, 150, 0.6)';
-                    fogContext.fillRect(0, 0, canvas.width, canvas.height);
-                    
-                    map.getPanes().overlayPane.appendChild(canvas);
-                    
-                    map.on('move zoom viewreset', () => this.reset());
-                    this.reset();
-                },
+            fogCanvas = document.getElementById('fogCanvas');
+            fogContext = fogCanvas.getContext('2d');
+            
+            function resizeFogCanvas() {
+                fogCanvas.width = window.innerWidth;
+                fogCanvas.height = window.innerHeight;
+                redrawFog();
+            }
+            
+            resizeFogCanvas();
+            window.addEventListener('resize', resizeFogCanvas);
+            google.maps.event.addListener(map, 'bounds_changed', redrawFog);
+            google.maps.event.addListener(map, 'zoom_changed', redrawFog);
+        }
+
+        function redrawFog() {
+            if (!fogContext || !map) return;
+            
+            fogContext.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
+            fogContext.fillStyle = 'rgba(150, 150, 150, 0.6)';
+            fogContext.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
+            
+            fogContext.globalCompositeOperation = 'destination-out';
+            
+            const passes = [
+                { width: 100, opacity: 1.0 },
+                { width: 120, opacity: 0.7 },
+                { width: 140, opacity: 0.4 },
+                { width: 160, opacity: 0.2 }
+            ];
+            
+            passes.forEach(pass => {
+                fogContext.strokeStyle = `rgba(255, 255, 255, ${pass.opacity})`;
+                fogContext.lineWidth = pass.width;
+                fogContext.lineCap = 'round';
+                fogContext.lineJoin = 'round';
                 
-                reset: function() {
-                    const size = map.getSize();
-                    const topLeft = map.containerPointToLayerPoint([0, 0]);
-                    L.DomUtil.setPosition(fogCanvas, topLeft);
+                allPaths.forEach(path => {
+                    if (path.length < 2) return;
                     
-                    if (fogCanvas.width !== size.x || fogCanvas.height !== size.y) {
-                        fogCanvas.width = size.x;
-                        fogCanvas.height = size.y;
-                        this.redraw();
-                    }
-                },
-                
-                redraw: function() {
-                    // Redraw fog
-                    fogContext.fillStyle = 'rgba(150, 150, 150, 0.6)';
-                    fogContext.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
-                    
-                    // Clear explored areas
-                    fogContext.globalCompositeOperation = 'destination-out';
-                    fogContext.strokeStyle = 'rgba(255, 255, 255, 1)';
-                    fogContext.lineWidth = 40; // Width of cleared area
-                    fogContext.lineCap = 'round';
-                    fogContext.lineJoin = 'round';
-                    
-                    allPaths.forEach(path => {
-                        if (path.length < 2) return;
-                        
-                        fogContext.beginPath();
-                        path.forEach((point, i) => {
-                            const p = map.latLngToContainerPoint(point);
-                            if (i === 0) {
-                                fogContext.moveTo(p.x, p.y);
-                            } else {
-                                fogContext.lineTo(p.x, p.y);
-                            }
-                        });
-                        fogContext.stroke();
+                    fogContext.beginPath();
+                    path.forEach((point, i) => {
+                        const latLng = new google.maps.LatLng(point[0], point[1]);
+                        const pixel = latLngToPixel(latLng);
+                        if (i === 0) {
+                            fogContext.moveTo(pixel.x, pixel.y);
+                        } else {
+                            fogContext.lineTo(pixel.x, pixel.y);
+                        }
                     });
-                    
-                    fogContext.globalCompositeOperation = 'source-over';
-                }
+                    fogContext.stroke();
+                });
             });
             
-            return new FogLayer();
+            fogContext.globalCompositeOperation = 'source-over';
+        }
+
+        function latLngToPixel(latLng) {
+            const projection = map.getProjection();
+            const bounds = map.getBounds();
+            const topRight = projection.fromLatLngToPoint(bounds.getNorthEast());
+            const bottomLeft = projection.fromLatLngToPoint(bounds.getSouthWest());
+            const scale = Math.pow(2, map.getZoom());
+            const worldPoint = projection.fromLatLngToPoint(latLng);
+            
+            return {
+                x: (worldPoint.x - bottomLeft.x) * scale,
+                y: (worldPoint.y - topRight.y) * scale
+            };
         }
         
         function drawPaths() {
-            pathPolylines.forEach(line => map.removeLayer(line));
+            pathPolylines.forEach(line => line.setMap(null));
             pathPolylines = [];
             
-            const pathFrequency = {};
+            const allPoints = [];
             allPaths.forEach(path => {
-                const key = path.map(p => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join('|');
-                pathFrequency[key] = (pathFrequency[key] || 0) + 1;
+                allPoints.push(...path.map(p => ({ lat: p[0], lng: p[1] })));
             });
             
-            allPaths.forEach(path => {
-                if (path.length < 2) return;
-                
-                const key = path.map(p => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join('|');
-                const frequency = pathFrequency[key];
-                
-                const polyline = L.polyline(path, {
-                    color: getPathColor(frequency),
-                    opacity: getPathOpacity(frequency),
-                    weight: 6,
-                    smoothFactor: 1
-                }).addTo(map);
+            if (allPoints.length > 1) {
+                const polyline = new google.maps.Polyline({
+                    path: allPoints,
+                    geodesic: true,
+                    strokeColor: '#4188FF',
+                    strokeOpacity: 0.8,
+                    strokeWeight: 6,
+                    map: map
+                });
                 
                 pathPolylines.push(polyline);
-            });
-            
-            // Update fog
-            if (fogCanvas && fogContext) {
-                const fogLayer = map._layers[Object.keys(map._layers).find(key => 
-                    map._layers[key].redraw
-                )];
-                if (fogLayer) fogLayer.redraw();
             }
+            
+            redrawFog();
         }
         
         function updateStatus(text, active = true) {
@@ -640,21 +684,31 @@
         function handlePosition(position) {
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
-            userPosition = [lat, lng];
+            const newPosition = [lat, lng];
             
             document.getElementById('loading').classList.add('hidden');
             
             if (!userMarker) {
-                const userIcon = L.divIcon({
-                    className: 'user-marker',
-                    iconSize: [20, 20],
-                    iconAnchor: [10, 10]
+                userMarker = new google.maps.Marker({
+                    position: { lat, lng },
+                    map: map,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 10,
+                        fillColor: '#4188ff',
+                        fillOpacity: 1,
+                        strokeColor: 'white',
+                        strokeWeight: 3
+                    },
+                    zIndex: 1000
                 });
                 
-                userMarker = L.marker(userPosition, { icon: userIcon }).addTo(map);
-                map.setView(userPosition, 16);
+                map.setCenter({ lat, lng });
+                map.setZoom(16);
+                userPosition = newPosition;
+                currentPath.push(newPosition);
             } else {
-                userMarker.setLatLng(userPosition);
+                userMarker.setPosition({ lat, lng });
             }
             
             updateStatus('Tracking', true);
@@ -663,21 +717,20 @@
                 const lastPos = currentPath[currentPath.length - 1];
                 const dist = calculateDistance(lastPos[0], lastPos[1], lat, lng);
                 
-                if (dist > 0.01) {
-                    currentPath.push([lat, lng]);
+                if (dist > 0.02) {
+                    currentPath.push(newPosition);
                     totalDistance += dist;
+                    userPosition = newPosition;
                     
-                    if (currentPath.length >= 5) {
+                    if (currentPath.length >= 3) {
                         allPaths.push([...currentPath]);
-                        currentPath = [[lat, lng]];
+                        currentPath = currentPath.slice(-2);
                         drawPaths();
                         saveData();
                     }
                     
                     updateStats();
                 }
-            } else {
-                currentPath.push([lat, lng]);
             }
         }
         
@@ -689,7 +742,8 @@
         
         function centerOnUser() {
             if (userPosition) {
-                map.setView(userPosition, 16);
+                map.setCenter({ lat: userPosition[0], lng: userPosition[1] });
+                map.setZoom(16);
             }
         }
         
@@ -699,39 +753,37 @@
                 return;
             }
             
-            // Remove previous lucky marker if exists
             if (luckyMarker) {
-                map.removeLayer(luckyMarker);
+                luckyMarker.setMap(null);
             }
             
-            // Generate random point 500m-1km away in random direction
-            const distance = 0.5 + Math.random() * 0.5; // 0.5-1km
+            const distance = 0.5 + Math.random() * 0.5;
             const angle = Math.random() * 2 * Math.PI;
             
-            // Convert to lat/lng offset (rough approximation)
             const latOffset = (distance / 111) * Math.cos(angle);
             const lngOffset = (distance / (111 * Math.cos(userPosition[0] * Math.PI / 180))) * Math.sin(angle);
             
-            const luckyPoint = [
-                userPosition[0] + latOffset,
-                userPosition[1] + lngOffset
-            ];
+            const luckyPoint = {
+                lat: userPosition[0] + latOffset,
+                lng: userPosition[1] + lngOffset
+            };
             
-            // Add marker
-            luckyMarker = L.marker(luckyPoint, {
-                icon: L.divIcon({
-                    className: 'lucky-marker',
-                    html: '🎯',
-                    iconSize: [30, 30],
-                    iconAnchor: [15, 15]
-                })
-            }).addTo(map);
+            luckyMarker = new google.maps.Marker({
+                position: luckyPoint,
+                map: map,
+                label: '🎯',
+                animation: google.maps.Animation.DROP
+            });
             
-            luckyMarker.bindPopup('Explore here! 🎲').openPopup();
+            const infoWindow = new google.maps.InfoWindow({
+                content: '<div style="font-weight: 600; color: #333;">Explore here! 🎲</div>'
+            });
+            infoWindow.open(map, luckyMarker);
             
-            // Pan to show both user and lucky point
-            const bounds = L.latLngBounds([userPosition, luckyPoint]);
-            map.fitBounds(bounds, { padding: [50, 50] });
+            const bounds = new google.maps.LatLngBounds();
+            bounds.extend({ lat: userPosition[0], lng: userPosition[1] });
+            bounds.extend(luckyPoint);
+            map.fitBounds(bounds, { padding: 50 });
         }
         
         function clearData() {
@@ -740,18 +792,16 @@
                 currentPath = [];
                 totalDistance = 0;
                 startTime = Date.now();
-                pathPolylines.forEach(line => map.removeLayer(line));
+                pathPolylines.forEach(line => line.setMap(null));
                 pathPolylines = [];
+                
+                if (userPosition) {
+                    currentPath.push(userPosition);
+                }
+                
                 localStorage.removeItem('explorationData');
                 updateStats();
-                
-                // Reset fog
-                if (fogCanvas && fogContext) {
-                    const fogLayer = map._layers[Object.keys(map._layers).find(key => 
-                        map._layers[key].redraw
-                    )];
-                    if (fogLayer) fogLayer.redraw();
-                }
+                redrawFog();
             }
         }
 
@@ -763,7 +813,6 @@
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     document.getElementById('permissionModal').classList.add('hidden');
-                    document.getElementById('loading').classList.remove('hidden');
                     startTracking();
                 },
                 (error) => {
@@ -793,25 +842,69 @@
             }
         }
 
+        function showUI() {
+            setTimeout(() => {
+                document.getElementById('loading').classList.add('fade-out');
+                document.getElementById('map').classList.add('loaded');
+                document.querySelector('.header').classList.add('visible');
+                document.querySelector('.legend').classList.add('visible');
+                document.querySelector('.stats-panel').classList.add('visible');
+                document.querySelector('.center-btn').classList.add('visible');
+            }, 1000);
+        }
+
         function initMap() {
             loadData();
             
-            map = L.map('map', {
+            // Custom map styling - clean and modern
+            const mapStyles = [
+                {
+                    featureType: 'poi',
+                    elementType: 'labels',
+                    stylers: [{ visibility: 'off' }]
+                },
+                {
+                    featureType: 'transit',
+                    elementType: 'labels',
+                    stylers: [{ visibility: 'off' }]
+                },
+                {
+                    featureType: 'road',
+                    elementType: 'geometry',
+                    stylers: [{ color: '#ffffff' }]
+                },
+                {
+                    featureType: 'water',
+                    elementType: 'geometry',
+                    stylers: [{ color: '#a8d0e6' }]
+                },
+                {
+                    featureType: 'landscape',
+                    elementType: 'geometry',
+                    stylers: [{ color: '#f5f5f5' }]
+                }
+            ];
+            
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 19.0760, lng: 72.8777 },
+                zoom: 13,
+                styles: mapStyles,
+                disableDefaultUI: false,
                 zoomControl: true,
-                attributionControl: true
-            }).setView([19.0760, 72.8777], 13);
+                mapTypeControl: false,
+                scaleControl: false,
+                streetViewControl: false,
+                rotateControl: false,
+                fullscreenControl: true,
+                gestureHandling: 'greedy'
+            });
             
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 19
-            }).addTo(map);
-            
-            // Add fog layer
-            const fogLayer = initFogCanvas();
-            fogLayer.addTo(map);
-            
-            drawPaths();
-            updateStats();
+            google.maps.event.addListenerOnce(map, 'idle', () => {
+                initFogCanvas();
+                drawPaths();
+                updateStats();
+                showUI();
+            });
         }
 
         async function checkPermission() {
@@ -825,7 +918,6 @@
                     const result = await navigator.permissions.query({ name: 'geolocation' });
                     
                     if (result.state === 'granted') {
-                        document.getElementById('loading').classList.remove('hidden');
                         startTracking();
                     } else {
                         document.getElementById('permissionModal').classList.remove('hidden');
@@ -838,11 +930,30 @@
             }
         }
 
+        function loadGoogleMaps() {
+            const script = document.createElement('script');
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&callback=initMap`;
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+        }
+
         window.addEventListener('load', () => {
-            initMap();
-            checkPermission();
-            
-            document.getElementById('allowButton').addEventListener('click', requestLocationPermission);
+            if (GOOGLE_MAPS_API_KEY === 'AIzaSyDMe6Gtz19tyYDmhlhA3gg50rKPjq1vfE8') {
+                document.getElementById('loading').innerHTML = `
+                    <div style="text-align: center; color: white;">
+                        <div style="font-size: 48px; margin-bottom: 20px;">⚠️</div>
+                        <div style="font-size: 20px; font-weight: 600; margin-bottom: 12px;">API Key Required</div>
+                        <div style="font-size: 14px; opacity: 0.9; max-width: 400px; line-height: 1.6;">
+                            Please add your Google Maps API key on <strong>line 485</strong> of the code.
+                        </div>
+                    </div>
+                `;
+            } else {
+                loadGoogleMaps();
+                checkPermission();
+                document.getElementById('allowButton').addEventListener('click', requestLocationPermission);
+            }
         });
         
         window.addEventListener('beforeunload', () => {
