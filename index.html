@@ -428,6 +428,8 @@
             left: 0;
             pointer-events: none;
             z-index: 100;
+            width: 100%;
+            height: 100%;
         }
     </style>
 </head>
@@ -471,12 +473,15 @@
     <div class="legend">
         <div class="legend-title">Legend</div>
         <div class="legend-item">
-            <div class="legend-color" style="background: rgba(200, 200, 200, 0.6);"></div>
+            <div class="legend-color" style="background: rgba(150, 150, 150, 0.65);"></div>
             <span>Unexplored</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: rgba(65, 136, 255, 0.8);"></div>
+            <div class="legend-color" style="background: linear-gradient(90deg, #4188FF 0%, #4CAF50 100%);"></div>
             <span>Your Path</span>
+        </div>
+        <div class="legend-item" style="font-size: 10px; opacity: 0.7; margin-top: 8px;">
+            💡 Zoom out to see green areas
         </div>
     </div>
 
@@ -579,31 +584,63 @@
             fogContext = fogCanvas.getContext('2d');
             
             function resizeFogCanvas() {
-                fogCanvas.width = window.innerWidth;
-                fogCanvas.height = window.innerHeight;
+                const mapDiv = document.getElementById('map');
+                fogCanvas.width = mapDiv.offsetWidth;
+                fogCanvas.height = mapDiv.offsetHeight;
+                fogCanvas.style.width = mapDiv.offsetWidth + 'px';
+                fogCanvas.style.height = mapDiv.offsetHeight + 'px';
                 redrawFog();
             }
             
             resizeFogCanvas();
             window.addEventListener('resize', resizeFogCanvas);
-            google.maps.event.addListener(map, 'bounds_changed', redrawFog);
+            
+            // Redraw fog when map moves or zooms
+            google.maps.event.addListener(map, 'idle', redrawFog);
             google.maps.event.addListener(map, 'zoom_changed', redrawFog);
+            google.maps.event.addListener(map, 'center_changed', redrawFog);
         }
 
         function redrawFog() {
             if (!fogContext || !map) return;
             
+            // Calculate zoom level difference
+            // initialZoom (16) is the default close-up level
+            // When zoomed out to level 11 (30% less), switch to green areas
+            const currentZoom = map.getZoom();
+            const initialZoom = 16;
+            const zoomDifference = initialZoom - currentZoom;
+            const zoomOutPercent = (zoomDifference / initialZoom) * 100;
+            
             fogContext.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
-            fogContext.fillStyle = 'rgba(150, 150, 150, 0.6)';
+            
+            // Switch rendering modes based on zoom level
+            if (zoomOutPercent >= 30) {
+                drawGreenAreas(); // Zoomed out: show green explored areas
+            } else {
+                drawFogEffect(); // Zoomed in: show fog clearing effect
+            }
+        }
+
+        function drawFogEffect() {
+            // Fill with grey fog
+            fogContext.fillStyle = 'rgba(150, 150, 150, 0.65)';
             fogContext.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
             
+            // Clear explored areas with smooth gradient (Snapchat style)
             fogContext.globalCompositeOperation = 'destination-out';
             
+            // Multiple passes for ultra-smooth gradient
             const passes = [
-                { width: 100, opacity: 1.0 },
+                { width: 80, opacity: 1.0 },   // Core path
+                { width: 100, opacity: 0.85 },
                 { width: 120, opacity: 0.7 },
-                { width: 140, opacity: 0.4 },
-                { width: 160, opacity: 0.2 }
+                { width: 140, opacity: 0.55 },
+                { width: 160, opacity: 0.4 },
+                { width: 180, opacity: 0.25 },
+                { width: 200, opacity: 0.15 },
+                { width: 220, opacity: 0.08 },
+                { width: 240, opacity: 0.03 }
             ];
             
             passes.forEach(pass => {
@@ -616,13 +653,20 @@
                     if (path.length < 2) return;
                     
                     fogContext.beginPath();
-                    path.forEach((point, i) => {
-                        const latLng = new google.maps.LatLng(point[0], point[1]);
-                        const pixel = latLngToPixel(latLng);
-                        if (i === 0) {
-                            fogContext.moveTo(pixel.x, pixel.y);
-                        } else {
-                            fogContext.lineTo(pixel.x, pixel.y);
+                    let firstPoint = true;
+                    
+                    path.forEach((point) => {
+                        const pixel = latLngToPixel({ lat: point[0], lng: point[1] });
+                        
+                        // Only draw if point is within canvas bounds
+                        if (pixel.x >= -300 && pixel.x <= fogCanvas.width + 300 && 
+                            pixel.y >= -300 && pixel.y <= fogCanvas.height + 300) {
+                            if (firstPoint) {
+                                fogContext.moveTo(pixel.x, pixel.y);
+                                firstPoint = false;
+                            } else {
+                                fogContext.lineTo(pixel.x, pixel.y);
+                            }
                         }
                     });
                     fogContext.stroke();
@@ -632,18 +676,87 @@
             fogContext.globalCompositeOperation = 'source-over';
         }
 
-        function latLngToPixel(latLng) {
-            const projection = map.getProjection();
-            const bounds = map.getBounds();
-            const topRight = projection.fromLatLngToPoint(bounds.getNorthEast());
-            const bottomLeft = projection.fromLatLngToPoint(bounds.getSouthWest());
-            const scale = Math.pow(2, map.getZoom());
-            const worldPoint = projection.fromLatLngToPoint(latLng);
+        function drawGreenAreas() {
+            // Draw semi-transparent green areas for explored regions (when zoomed out)
+            fogContext.globalCompositeOperation = 'source-over';
             
-            return {
-                x: (worldPoint.x - bottomLeft.x) * scale,
-                y: (worldPoint.y - topRight.y) * scale
+            // Outer glow
+            fogContext.strokeStyle = 'rgba(76, 175, 80, 0.2)';
+            fogContext.lineWidth = 200;
+            fogContext.lineCap = 'round';
+            fogContext.lineJoin = 'round';
+            
+            allPaths.forEach(path => {
+                if (path.length < 2) return;
+                
+                fogContext.beginPath();
+                let firstPoint = true;
+                
+                path.forEach((point) => {
+                    const pixel = latLngToPixel({ lat: point[0], lng: point[1] });
+                    
+                    if (pixel.x >= -300 && pixel.x <= fogCanvas.width + 300 && 
+                        pixel.y >= -300 && pixel.y <= fogCanvas.height + 300) {
+                        if (firstPoint) {
+                            fogContext.moveTo(pixel.x, pixel.y);
+                            firstPoint = false;
+                        } else {
+                            fogContext.lineTo(pixel.x, pixel.y);
+                        }
+                    }
+                });
+                fogContext.stroke();
+            });
+            
+            // Inner path
+            fogContext.strokeStyle = 'rgba(76, 175, 80, 0.35)';
+            fogContext.lineWidth = 100;
+            
+            allPaths.forEach(path => {
+                if (path.length < 2) return;
+                
+                fogContext.beginPath();
+                let firstPoint = true;
+                
+                path.forEach((point) => {
+                    const pixel = latLngToPixel({ lat: point[0], lng: point[1] });
+                    
+                    if (pixel.x >= -300 && pixel.x <= fogCanvas.width + 300 && 
+                        pixel.y >= -300 && pixel.y <= fogCanvas.height + 300) {
+                        if (firstPoint) {
+                            fogContext.moveTo(pixel.x, pixel.y);
+                            firstPoint = false;
+                        } else {
+                            fogContext.lineTo(pixel.x, pixel.y);
+                        }
+                    }
+                });
+                fogContext.stroke();
+            });
+        }
+
+        function latLngToPixel(latLng) {
+            const scale = Math.pow(2, map.getZoom());
+            const projection = map.getProjection();
+            
+            if (!projection) return { x: 0, y: 0 };
+            
+            const bounds = map.getBounds();
+            if (!bounds) return { x: 0, y: 0 };
+            
+            const ne = bounds.getNorthEast();
+            const sw = bounds.getSouthWest();
+            
+            const worldCoordinateNE = projection.fromLatLngToPoint(ne);
+            const worldCoordinateSW = projection.fromLatLngToPoint(sw);
+            const worldCoordinate = projection.fromLatLngToPoint(latLng);
+            
+            const point = {
+                x: ((worldCoordinate.x - worldCoordinateSW.x) / (worldCoordinateNE.x - worldCoordinateSW.x)) * fogCanvas.width,
+                y: ((worldCoordinate.y - worldCoordinateNE.y) / (worldCoordinateSW.y - worldCoordinateNE.y)) * fogCanvas.height
             };
+            
+            return point;
         }
         
         function drawPaths() {
@@ -656,16 +769,30 @@
             });
             
             if (allPoints.length > 1) {
-                const polyline = new google.maps.Polyline({
+                // Main blue path
+                const bluePath = new google.maps.Polyline({
                     path: allPoints,
                     geodesic: true,
                     strokeColor: '#4188FF',
-                    strokeOpacity: 0.8,
-                    strokeWeight: 6,
-                    map: map
+                    strokeOpacity: 0.7,
+                    strokeWeight: 8,
+                    map: map,
+                    zIndex: 10
                 });
                 
-                pathPolylines.push(polyline);
+                // Green tint overlay for "walked on" effect
+                const greenOverlay = new google.maps.Polyline({
+                    path: allPoints,
+                    geodesic: true,
+                    strokeColor: '#4CAF50',
+                    strokeOpacity: 0.4,
+                    strokeWeight: 6,
+                    map: map,
+                    zIndex: 11
+                });
+                
+                pathPolylines.push(bluePath);
+                pathPolylines.push(greenOverlay);
             }
             
             redrawFog();
@@ -945,7 +1072,7 @@
                         <div style="font-size: 48px; margin-bottom: 20px;">⚠️</div>
                         <div style="font-size: 20px; font-weight: 600; margin-bottom: 12px;">API Key Required</div>
                         <div style="font-size: 14px; opacity: 0.9; max-width: 400px; line-height: 1.6;">
-                            Please add your Google Maps API key on <strong>line 485</strong> of the code.
+                            Search for <strong>YOUR_API_KEY_HERE</strong> in the code and replace it with your Google Maps API key.
                         </div>
                     </div>
                 `;
